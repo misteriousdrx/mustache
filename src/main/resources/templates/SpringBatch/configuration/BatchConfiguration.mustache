@@ -1,0 +1,135 @@
+package {{projectPackage}}.config;
+
+
+import java.util.Date;
+
+import javax.sql.DataSource;
+
+import org.springframework.batch.core.Job;
+import org.springframework.batch.core.JobExecution;
+import org.springframework.batch.core.JobParameters;
+import org.springframework.batch.core.JobParametersBuilder;
+import org.springframework.batch.core.Step;
+import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
+import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
+import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
+import org.springframework.batch.core.launch.support.RunIdIncrementer;
+import org.springframework.batch.core.launch.support.SimpleJobLauncher;
+import org.springframework.batch.item.ItemWriter;
+import org.springframework.batch.item.database.BeanPropertyItemSqlParameterSourceProvider;
+import org.springframework.batch.item.database.JdbcBatchItemWriter;
+import org.springframework.batch.item.file.FlatFileItemReader;
+import org.springframework.batch.item.file.mapping.DefaultLineMapper;
+import org.springframework.batch.item.file.transform.FixedLengthTokenizer;
+import org.springframework.batch.item.file.transform.Range;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.scheduling.annotation.Scheduled;
+
+import {{projectPackage}}.business.Debito;
+import {{projectPackage}}.mapper.DebitoMapper;
+import {{projectPackage}}.processor.DebitoItemProcessor;
+
+@Configuration
+@EnableBatchProcessing
+public class BatchConfiguration {
+
+    @Autowired
+    private JobBuilderFactory job;
+    @Autowired
+    private StepBuilderFactory stepBuilderFactory;
+    @Autowired
+    private DataSource dataSource;
+    @Autowired
+    private SimpleJobLauncher jobLauncher;
+
+
+    @Bean
+    public FlatFileItemReader<ContaCorrente> debitoReader(){
+        FlatFileItemReader<ContaCorrente> fileItemReader = new FlatFileItemReader<ContaCorrente>();
+        DefaultLineMapper<ContaCorrente> defaultLineMapper = new DefaultLineMapper<ContaCorrente>();
+        FixedLengthTokenizer fixedLengthTokenizer = new FixedLengthTokenizer();
+
+        fixedLengthTokenizer.setNames(
+            "agencia",
+            "conta",
+            "dac"
+        );
+
+        fixedLengthTokenizer.setColumns(
+            new Range(01, 04),
+            new Range(05, 10),
+            new Range(11, 11)
+        );
+
+        defaultLineMapper.setLineTokenizer(fixedLengthTokenizer);
+        defaultLineMapper.setFieldSetMapper(new DebitoMapper());
+
+        fileItemReader.setName("debitoItemReader");
+        fileItemReader.setResource(new ClassPathResource("debitos.txt"));
+        fileItemReader.setLineMapper(defaultLineMapper);
+
+        return fileItemReader;
+    }
+
+    @Bean
+    public PersonItemProcessor processor() {
+    return new PersonItemProcessor();
+    }
+
+        private ItemWriter<Debito> debitoWriter() {
+            JdbcBatchItemWriter<Debito> writer = new JdbcBatchItemWriter<Debito>();
+
+                writer.setItemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<Debito>());
+                    writer.setSql("INSERT INTO debito (agencia, conta, dataDebito) VALUES (:agencia, :conta, :dataDebito)");
+                    writer.setDataSource(dataSource);
+
+                    return null;
+                    }
+
+
+                    @Scheduled(fixedRate = 60000)
+                    public void executeJob() throws Exception {
+                    System.out.println(" Job Started at :"+ new Date());
+
+                    JobParameters param = new JobParametersBuilder().addString("JobID", String.valueOf(System.currentTimeMillis())).toJobParameters();
+                    JobExecution execution = jobLauncher.run(importDebitos(), param);
+
+                    System.out.println("Job finished with status :" + execution.getStatus());
+                    }
+
+
+
+                    public Job importDebitos() {
+                    System.out.println("Job Debitos started");
+
+                    return job.get("importDebitoJob")
+                    .incrementer(new RunIdIncrementer())
+                    .flow(step2())
+                    .end()
+                    .build();
+                    }
+
+
+                    @Bean
+                    public Step step2() {
+                    System.out.println("Step Debito 1 Started");
+
+                    return stepBuilderFactory.get("step2")
+                    .<Debito, Debito> chunk(100)
+                    .reader(debitoReader())
+                    .processor(new DebitoItemProcessor())
+                    .writer(debitoWriter())
+                    .build();
+                    }
+
+
+
+
+
+
+
+
+                    }
